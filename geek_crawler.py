@@ -71,13 +71,18 @@ def check_filename(file_name):
     Returns:
         修复后的文件名称
     """
-    return file_name.replace('\\', '')\
-                    .replace('/', '')\
-                    .replace('*', 'x')\
-                    .replace('?', '')\
-                    .replace('<', '《')\
-                    .replace('>', '》')\
-                    .replace('|', '_')
+    return file_name.replace('\\', '') \
+                    .replace('/', '') \
+                    .replace('*', 'x') \
+                    .replace('?', '') \
+                    .replace('<', '《') \
+                    .replace('>', '》') \
+                    .replace('|', '_') \
+                    .replace('\n', '') \
+                    .replace('\b', '') \
+                    .replace('\f', '') \
+                    .replace('\t', '') \
+                    .replace('\r', '')
 
 
 class Cookie:
@@ -391,33 +396,6 @@ class GeekCrawler:
             raise NotValueError(f"获取文章列表接口没有获取到内容，请检查请求。返回结果为：{res.json()}")
         log.info('-' * 40)
 
-    def flow(self):
-        """ 整体流程的请求方法 """
-        self._login()  # 请求登录接口进行登录
-        time.sleep(0.1)
-        self._product()  # 请求获取课程接口
-        time.sleep(0.2)
-
-        number = 0
-
-        for pro in self.products:
-            self._articles(pro['id'], pro)  # 通过前面获取到的 cid 获取文章列表
-            time.sleep(0.1)
-
-            article_ids = pro['article_ids']
-            for aid in article_ids:
-                if str(aid) in FINISH_ARTICLES:
-                    continue
-                self._article(aid, pro)  # 获取单个文章的信息
-                number += 1
-                # 判断是否连续抓取过 37次，如果是则暂停 30s
-                if number == 37:
-                    time.sleep(30)
-                    number = 0
-                time.sleep(0.1)
-
-        log.info("正常抓取完成啦，不用再重新跑脚本了。")
-
     @staticmethod
     def save_to_file(dir_name, filename, content, audio=None, file_type='.md'):
         """
@@ -494,4 +472,7 @@ if __name__ == "__main__":
         FINISH_ARTICLES = _load_finish_article()
         run(cellphone, pwd, exclude=exclude)
     except Exception:
+        import traceback
+        log.error(f"请求过程中出错了，出错信息为：{traceback.format_exc()}")
+    finally:
         _save_finish_article_id_to_file()

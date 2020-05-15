@@ -466,7 +466,8 @@ if __name__ == "__main__":
     pwd = str(input("请输入你的极客时间密码: "))
 
     # 需要排除的课程列表，根据自己的情况定义（比如已经有的资源就不用再继续下载了）
-    exclude = ['左耳听风', '趣谈网络协议']
+    # exclude = ['左耳听风', '趣谈网络协议']
+    exclude = []
 
     try:
         FINISH_ARTICLES = _load_finish_article()

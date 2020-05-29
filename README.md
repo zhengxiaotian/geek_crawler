@@ -17,6 +17,7 @@
 2. 直接在终端或者 Pycharm 中运行脚本(ps: 代码是在 Python3 下编写的，需要使用 Python3 运行)
 
    ```shell
+   # 运行前需安装一个第三方库 requests
    python geek_crawler.py
    ```
 

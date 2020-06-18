@@ -9,6 +9,7 @@
     流程： 登录账号 -- 获取课程列表（专栏） -- 循环读取单个专栏的内容 -- 将内容保存成 md 文件）
 ========================================="""
 import time
+import datetime
 import requests
 import re
 from copy import deepcopy
@@ -306,7 +307,7 @@ class GeekCrawler:
                 result.append(new_product)
         return result
 
-    def _article(self, aid, pro):
+    def _article(self, aid, pro, file_type=None, get_comments=False):
         """ 通过课程 ID 获取文章信息接口方法 """
         global FINISH_ARTICLES
         log.info("请求获取文章信息接口：")
@@ -334,13 +335,16 @@ class GeekCrawler:
         self.cookie.load_set_cookie(res.headers['Set-Cookie'])
 
         if data:
+            comments = self._comments(aid) if get_comments else None
             keys = ['article_content', 'article_title', 'id', 'audio_download_url']  # 定义要拿取的字段
             article = {key: value for key, value in data.items() if key in keys}
             self.save_to_file(
                 pro['title'],
                 article['article_title'],
                 article['article_content'],
-                audio=article['audio_download_url']
+                audio=article['audio_download_url'],
+                file_type=file_type,
+                comments=comments
             )
 
             FINISH_ARTICLES.append(article['id'])  # 将该文章 ID 加入到遍历完成的列表中
@@ -352,6 +356,36 @@ class GeekCrawler:
             log.error(f"获取文章信息接口没有获取到内容，请检查请求。返回结果为：{res.content.decode()}")
             raise NotValueError(f"获取文章信息接口没有获取到内容，请检查请求。返回结果为：{res.content.decode()}")
         log.info('-' * 40)
+
+    def _comments(self, aid):
+        """ 获取文章评论详情接口 """
+        log.info("请求获取文章评论详情接口：")
+        url = "https://time.geekbang.org/serv/v1/comments"
+        method = "POST"
+        headers = deepcopy(self.common_headers)
+        headers["Host"] = "time.geekbang.org"
+        headers["Origin"] = "https://time.geekbang.org"
+        headers["Cookie"] = self.cookie.cookie_string
+        params = {
+            "aid": aid,
+            "prev": "0"
+        }
+
+        log.info(f"接口请求参数：{params}")
+        res = requests.request(method, url, headers=headers, json=params)
+
+        if res.status_code != 200:
+            log.error(f"获取文章评论接口请求出错，返回内容为：{res.content.decode()}")
+            return None
+        data = res.json().get('data', {}).get('list', [])
+        self.cookie.load_set_cookie(res.headers['Set-Cookie'])
+
+        if data:
+            keys = ['comment_content', 'comment_ctime', 'user_header', 'user_name', 'replies']  # 定义要拿取的字段
+            comments = [{key: value for key, value in comment.items() if key in keys} for comment in data]
+            return comments
+        else:
+            return None
 
     def _articles(self, cid, pro):
         """ 获取文章列表接口方法 """
@@ -397,7 +431,7 @@ class GeekCrawler:
         log.info('-' * 40)
 
     @staticmethod
-    def save_to_file(dir_name, filename, content, audio=None, file_type='.md'):
+    def save_to_file(dir_name, filename, content, audio=None, file_type=None, comments=None):
         """
         将结果保存成文件的方法，保存在当前目录下
         Args:
@@ -406,21 +440,54 @@ class GeekCrawler:
             content: 需要保存的文本内容
             audio: 需要填入文件中的音频文件（一般为音频地址）
             file_type: 文档类型（需要保存什么类型的文档），默认保存为 Markdown 文档
+            comments: 评论相关数据
         Returns:
         """
+        if not file_type: file_type = '.md'
         dir_path = pathlib.PurePosixPath() / dir_name
         if not os.path.isdir(dir_path):
             os.mkdir(dir_path)
         filename = check_filename(filename)
         file_path = os.path.abspath(dir_path / (filename + file_type))
+
+        # 处理评论数据
+        temp = ""
+        if comments:
+            with open('comment.css', 'r', encoding='utf-8') as f:
+                comment_style = f.read()
+            temp = comment_style + "<ul>"
+            for comment in comments:
+                replie_str = ""
+                for replie in comment.get('replies', []):
+                    replie_str += f"""<p class="_3KxQPN3V_0">{replie['user_name']}: {replie['content']}</p>"""
+                comment_str = f"""<li>
+<div class="_2sjJGcOH_0"><img src="{comment['user_header']}"
+  class="_3FLYR4bF_0">
+<div class="_36ChpWj4_0">
+  <div class="_2zFoi7sd_0"><span>{comment['user_name']}</span>
+  </div>
+  <div class="_2_QraFYR_0">{comment['comment_content']}</div>
+  <div class="_10o3OAxT_0">
+    {replie_str}
+  </div>
+  <div class="_3klNVc4Z_0">
+    <div class="_3Hkula0k_0">{datetime.datetime.fromtimestamp(comment['comment_ctime'])}</div>
+  </div>
+</div>
+</div>
+</li>\n"""
+                temp += comment_str
+            temp += "</ul>"
+
+        # 将所有数据写入文件中
         with open(file_path, 'w', encoding='utf-8') as f:
             if audio:
                 audio_text = f'<audio title="{filename}" src="{audio}" controls="controls"></audio> \n'
                 f.write(audio_text)
-            f.write(content)
+            f.write(content + temp)
 
 
-def run(cellphone=None, passwd=None, exclude=None):
+def run(cellphone=None, passwd=None, exclude=None, file_type=None, get_comments=False):
     """ 整体流程的请求方法 """
     global FINISH_ARTICLES
     global ALL_ARTICLES
@@ -443,7 +510,7 @@ def run(cellphone=None, passwd=None, exclude=None):
 
             if str(aid) in FINISH_ARTICLES:
                 continue
-            geek._article(aid, pro)  # 获取单个文章的信息
+            geek._article(aid, pro, file_type=file_type, get_comments=get_comments)  # 获取单个文章的信息
             time.sleep(5)  # 做一个延时请求，避免过快请求接口被限制访问
             number += 1
             # 判断是否连续抓取过 37次，如果是则暂停 10s
@@ -469,9 +536,15 @@ if __name__ == "__main__":
     # exclude = ['左耳听风', '趣谈网络协议']
     exclude = []
 
+    # 需要保存文件的后缀名，尽量选 .md 或者 .html
+    file_type = '.md'
+
+    # 是否获取评论信息，目前暂时设置为不获取，因为 md 文档中评论显示不太好看，如果需要获取评论的话请设置保存文本为 HTML（样式好看些）
+    get_comments = False  # True
+
     try:
         FINISH_ARTICLES = _load_finish_article()
-        run(cellphone, pwd, exclude=exclude)
+        run(cellphone, pwd, exclude=exclude, get_comments=get_comments)
     except Exception:
         import traceback
         log.error(f"请求过程中出错了，出错信息为：{traceback.format_exc()}")

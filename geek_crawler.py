@@ -556,15 +556,12 @@ def get_article(geek: GeekCrawler, pro=None):
 
 if __name__ == "__main__":
     # 采用在脚本中写死账号密码的方式
-    cellphone = "12158642808"
-    pwd = "c8a61a61"
-
-    cellphone = "12151241560"
-    pwd = "62bbd0b7"
+    cellphone = ""
+    pwd = ""
     # 采用每次跑脚本手动输入账号密码的方式
-    if cellphone is None:
+    if cellphone is None or len(cellphone) <= 5:
         cellphone = str(input("请输入你的极客时间账号（手机号）: "))
-    if pwd is None:
+    if pwd is None or len(pwd) <= 5:
         pwd = str(input("请输入你的极客时间密码: "))
 
     # 需要排除的课程列表，根据自己的情况定义（比如已经有的资源就不用再继续下载了）

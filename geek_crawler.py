@@ -16,7 +16,7 @@ from copy import deepcopy
 import logging
 import os
 import pathlib
-
+from tenacity import retry, stop_after_attempt
 
 # 定义日志相关内容
 logging.basicConfig(format='%(asctime)s - %(pathname)s[line:%(lineno)d] - %(levelname)s: %(message)s',
@@ -64,6 +64,14 @@ def _save_finish_article_id_to_file():
             f.write(str(i) + '\n')
 
 
+def _save_finish_article_id_to_file_now(article_id: str):
+    """ 将已经遍历完成的文章 ID 马上保存成文本，后面不用再遍历 """
+    _dir = pathlib.PurePosixPath()
+    file_path = os.path.abspath(_dir / 'finish_crawler_article.txt')
+    with open(file_path, 'a+', encoding='utf-8') as f:
+        f.write(article_id + '\n')
+
+
 def check_filename(file_name):
     """
     校验文件名称的方法，在 windows 中文件名不能包含('\','/','*','?','<','>','|') 字符
@@ -73,17 +81,17 @@ def check_filename(file_name):
         修复后的文件名称
     """
     return file_name.replace('\\', '') \
-                    .replace('/', '') \
-                    .replace('*', 'x') \
-                    .replace('?', '') \
-                    .replace('<', '《') \
-                    .replace('>', '》') \
-                    .replace('|', '_') \
-                    .replace('\n', '') \
-                    .replace('\b', '') \
-                    .replace('\f', '') \
-                    .replace('\t', '') \
-                    .replace('\r', '')
+        .replace('/', '') \
+        .replace('*', 'x') \
+        .replace('?', '') \
+        .replace('<', '《') \
+        .replace('>', '》') \
+        .replace('|', '_') \
+        .replace('\n', '') \
+        .replace('\b', '') \
+        .replace('\f', '') \
+        .replace('\t', '') \
+        .replace('\r', '')
 
 
 class Cookie:
@@ -155,6 +163,7 @@ class Cookie:
 
 class GeekCrawler:
     """ 极客时间相关操作的类 """
+
     def __init__(self, cellphone=None, passwd=None, exclude=None):
         self.cellphone = cellphone
         self.password = passwd
@@ -215,7 +224,7 @@ class GeekCrawler:
             log.error(f"登录接口请求出错，返回内容为：{res.content.decode()}")
             raise RequestError(f"登录接口请求出错，返回内容为：{res.content.decode()}")
         self.cookie.load_set_cookie(res.headers['Set-Cookie'])
-        log.info('-'*40)
+        log.info('-' * 40)
 
     def _user_auth(self):
         """ 用户认证接口方法 """
@@ -237,7 +246,6 @@ class GeekCrawler:
             raise RequestError(f"用户认证接口请求出错，返回内容为：{res.json()}")
         self.cookie.load_set_cookie(res.headers['Set-Cookie'])
         log.info('-' * 40)
-
 
     def _product(self, _type='c1'):
         """ 商品列表（就是课程）的接口）方法 """
@@ -264,7 +272,7 @@ class GeekCrawler:
         res = requests.request(method, url, headers=headers, json=params)
 
         if res.status_code != 200:
-            log.info(f"此时 products 的数据为：{self.products}")
+            # log.info(f"此时 products 的数据为：{self.products}")
             log.error(f"课程列表接口请求出错，返回内容为：{res.content.decode()}")
             raise RequestError(f"课程列表接口请求出错，返回内容为：{res.content.decode()}")
         data = res.json().get('data', {})
@@ -274,9 +282,10 @@ class GeekCrawler:
             self.products += self._parser_products(data, _type)
         else:
             _save_finish_article_id_to_file()
-            log.info(f"此时 products 的数据为：{self.products}")
+            # log.info(f"此时 products 的数据为：{self.products}")
             log.error(f"课程列表接口没有获取到内容，请检查请求。返回结果为：{res.content.decode()}")
             raise NotValueError(f"课程列表接口没有获取到内容，请检查请求。返回结果为：{res.content.decode()}")
+        log.info(f"此时 products 的数据为：{self.products}")
         log.info('-' * 40)
 
     def _parser_products(self, data, _type='c1'):
@@ -307,10 +316,11 @@ class GeekCrawler:
                 result.append(new_product)
         return result
 
+    @retry(stop=stop_after_attempt(3))
     def _article(self, aid, pro, file_type=None, get_comments=False):
         """ 通过课程 ID 获取文章信息接口方法 """
         global FINISH_ARTICLES
-        log.info("请求获取文章信息接口：")
+        # log.info("请求获取文章信息接口：")
         url = "https://time.geekbang.org/serv/v1/article"
         method = "POST"
         headers = deepcopy(self.common_headers)
@@ -323,13 +333,13 @@ class GeekCrawler:
             "is_freelyread": "true"
         }
 
-        log.info(f"接口请求参数：{params}")
+        log.debug(f"接口请求参数：{params}")
         res = requests.request(method, url, headers=headers, json=params)
 
         if res.status_code != 200:
             _save_finish_article_id_to_file()
             log.info(f"此时 products 的数据为：{self.products}")
-            log.error(f"获取文章信息接口请求出错，返回内容为：{res.content.decode()}")
+            log.error(f"状态{res.status_code}获取文章信息接口请求出错，返回内容为：{res.content.decode()}")
             raise RequestError(f"获取文章信息接口请求出错，返回内容为：{res.content.decode()}")
         data = res.json().get('data', {})
         self.cookie.load_set_cookie(res.headers['Set-Cookie'])
@@ -342,6 +352,7 @@ class GeekCrawler:
                 pro['title'],
                 article['article_title'],
                 article['article_content'],
+                article['id'],
                 audio=article['audio_download_url'],
                 file_type=file_type,
                 comments=comments
@@ -431,7 +442,7 @@ class GeekCrawler:
         log.info('-' * 40)
 
     @staticmethod
-    def save_to_file(dir_name, filename, content, audio=None, file_type=None, comments=None):
+    def save_to_file(dir_name, filename, content, id, audio=None, file_type=None, comments=None):
         """
         将结果保存成文件的方法，保存在当前目录下
         Args:
@@ -443,6 +454,7 @@ class GeekCrawler:
             comments: 评论相关数据
         Returns:
         """
+        log.info(f"   {filename}   ")
         if not file_type: file_type = '.md'
         dir_path = pathlib.PurePosixPath() / dir_name
         if not os.path.isdir(dir_path):
@@ -485,9 +497,10 @@ class GeekCrawler:
                 audio_text = f'<audio title="{filename}" src="{audio}" controls="controls"></audio> \n'
                 f.write(audio_text)
             f.write(content + temp)
+        _save_finish_article_id_to_file_now(str(id))
 
 
-def run(cellphone=None, passwd=None, exclude=None, file_type=None, get_comments=False):
+def run(cellphone=None, passwd=None, exclude=None, special=None, file_type=None, get_comments=False):
     """ 整体流程的请求方法 """
     global FINISH_ARTICLES
     global ALL_ARTICLES
@@ -495,46 +508,71 @@ def run(cellphone=None, passwd=None, exclude=None, file_type=None, get_comments=
     geek = GeekCrawler(cellphone, passwd, exclude=exclude)
     geek._login()  # 请求登录接口进行登录
     geek._product()  # 请求获取课程接口
-
-    number = 0
-
+    exsit = False
     for pro in geek.products:
-        geek._articles(pro['id'], pro)  # 获取文章列表
-
-        article_ids = pro['article_ids']
-        for aid in article_ids:
-            if set(ALL_ARTICLES) == set(FINISH_ARTICLES):
-                import sys
-                log.info("正常抓取完成啦，不用再继续跑脚本了。")
-                sys.exit(1)
-
-            if str(aid) in FINISH_ARTICLES:
+        if special is not None and len(special) > 0:
+            if pro['id'] not in special:
                 continue
-            geek._article(aid, pro, file_type=file_type, get_comments=get_comments)  # 获取单个文章的信息
-            time.sleep(5)  # 做一个延时请求，避免过快请求接口被限制访问
-            number += 1
-            # 判断是否连续抓取过 37次，如果是则暂停 10s
-            if number == 37:
-                log.info("抓取达到37次了，先暂停 10s 再继续。")
-                time.sleep(10)
-                number = 0  # 重新计数
-                geek._user_auth()
+        get_article(geek, pro)
+        exsit = True
+        time.sleep(10)
+        geek._user_auth()
+
     _save_finish_article_id_to_file()
-    log.info("正常抓取完成。")
+    if exsit is not True:
+        # 不准确
+        log.warning(f"没有找到文章{special}")
+    else:
+        log.info("正常抓取完成。")
+
+
+def get_article(geek: GeekCrawler, pro=None):
+    """ 获取课程的所有文章 """
+    article_id = pro['id']
+    geek._articles(article_id, pro)  # 获取文章列表
+    article_title = pro['title']
+    log.info(f"正在下载的文章 《{article_title}》   id={article_id}")
+    log.info('-' * 40)
+    article_ids = pro['article_ids']
+    number = 0
+    for aid in article_ids:
+        if set(ALL_ARTICLES) == set(FINISH_ARTICLES):
+            import sys
+            log.info("正常抓取完成啦，不用再继续跑脚本了。")
+            sys.exit(1)
+
+        if str(aid) in FINISH_ARTICLES:
+            continue
+        geek._article(aid, pro, file_type=file_type, get_comments=get_comments)  # 获取单个文章的信息
+        time.sleep(5)  # 做一个延时请求，避免过快请求接口被限制访问
+        number += 1
+        # 判断是否连续抓取过 37次，如果是则暂停 10s
+        if number == 37:
+            log.info("抓取达到37次了，先暂停 10s 再继续。")
+            time.sleep(10)
+            number = 0  # 重新计数
+            geek._user_auth()
 
 
 if __name__ == "__main__":
     # 采用在脚本中写死账号密码的方式
-    # cellphone = ""
-    # pwd = ""
+    cellphone = "12158642808"
+    pwd = "c8a61a61"
 
+    cellphone = "12151241560"
+    pwd = "62bbd0b7"
     # 采用每次跑脚本手动输入账号密码的方式
-    cellphone = str(input("请输入你的极客时间账号（手机号）: "))
-    pwd = str(input("请输入你的极客时间密码: "))
+    if cellphone is None:
+        cellphone = str(input("请输入你的极客时间账号（手机号）: "))
+    if pwd is None:
+        pwd = str(input("请输入你的极客时间密码: "))
 
     # 需要排除的课程列表，根据自己的情况定义（比如已经有的资源就不用再继续下载了）
     # exclude = ['左耳听风', '趣谈网络协议']
     exclude = []
+
+    # 指定好要下载的课程id
+    special = [100022301, 100026001]
 
     # 需要保存文件的后缀名，尽量选 .md 或者 .html
     file_type = '.md'
@@ -544,9 +582,10 @@ if __name__ == "__main__":
 
     try:
         FINISH_ARTICLES = _load_finish_article()
-        run(cellphone, pwd, exclude=exclude, get_comments=get_comments)
+        run(cellphone, pwd, exclude=exclude, special=special, get_comments=get_comments)
     except Exception:
         import traceback
+
         log.error(f"请求过程中出错了，出错信息为：{traceback.format_exc()}")
     finally:
         _save_finish_article_id_to_file()

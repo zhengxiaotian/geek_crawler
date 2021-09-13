@@ -544,7 +544,7 @@ if __name__ == "__main__":
 
     try:
         FINISH_ARTICLES = _load_finish_article()
-        run(cellphone, pwd, exclude=exclude, get_comments=get_comments)
+        run(cellphone, pwd, exclude=exclude, file_type=file_type, get_comments=get_comments)
     except Exception:
         import traceback
         log.error(f"请求过程中出错了，出错信息为：{traceback.format_exc()}")

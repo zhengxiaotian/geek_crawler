@@ -28,6 +28,7 @@ log.addHandler(handler)
 # 定义全局变量
 FINISH_ARTICLES = []
 ALL_ARTICLES = []
+PRODUCT_PREV = 0
 
 
 class RequestError(Exception):
@@ -241,6 +242,7 @@ class GeekCrawler:
 
     def _product(self, _type='c1'):
         """ 商品列表（就是课程）的接口）方法 """
+        global PRODUCT_PREV
         log.info("请求获取课程列表接口：")
         url = "https://time.geekbang.org/serv/v3/learn/product"
         method = "POST"
@@ -253,7 +255,7 @@ class GeekCrawler:
             "expire": 1,
             "last_learn": 0,
             "learn_status": 0,
-            "prev": 0,
+            "prev": PRODUCT_PREV,
             "size": 20,
             "sort": 1,
             "type": "",
@@ -496,31 +498,45 @@ def run(cellphone=None, passwd=None, exclude=None, file_type=None, get_comments=
     geek._login()  # 请求登录接口进行登录
     geek._product()  # 请求获取课程接口
 
-    number = 0
+    def paint_product():
+        global PRODUCT_PREV
+        if len(geek.products):
+            number = 0
 
-    for pro in geek.products:
-        geek._articles(pro['id'], pro)  # 获取文章列表
+            for pro in geek.products:
+                geek._articles(pro['id'], pro)  # 获取文章列表
 
-        article_ids = pro['article_ids']
-        for aid in article_ids:
-            if set(ALL_ARTICLES) == set(FINISH_ARTICLES):
-                import sys
-                log.info("正常抓取完成啦，不用再继续跑脚本了。")
-                sys.exit(1)
+                article_ids = pro['article_ids']
+                for aid in article_ids:
+                    if set(ALL_ARTICLES) == set(FINISH_ARTICLES):
+                        import sys
+                        log.info("正常抓取完成啦，不用再继续跑脚本了。")
+                        sys.exit(1)
 
-            if str(aid) in FINISH_ARTICLES:
-                continue
-            geek._article(aid, pro, file_type=file_type, get_comments=get_comments)  # 获取单个文章的信息
-            time.sleep(5)  # 做一个延时请求，避免过快请求接口被限制访问
-            number += 1
-            # 判断是否连续抓取过 37次，如果是则暂停 10s
-            if number == 37:
-                log.info("抓取达到37次了，先暂停 10s 再继续。")
-                time.sleep(10)
-                number = 0  # 重新计数
-                geek._user_auth()
-    _save_finish_article_id_to_file()
-    log.info("正常抓取完成。")
+                    if str(aid) in FINISH_ARTICLES:
+                        continue
+                    geek._article(aid, pro, file_type=file_type, get_comments=get_comments)  # 获取单个文章的信息
+                    time.sleep(5)  # 做一个延时请求，避免过快请求接口被限制访问
+                    number += 1
+                    # 判断是否连续抓取过 37次，如果是则暂停 10s
+                    if number == 37:
+                        log.info("抓取达到37次了，先暂停 10s 再继续。")
+                        time.sleep(10)
+                        number = 0  # 重新计数
+                        geek._user_auth()
+            _save_finish_article_id_to_file()
+            time.sleep(2)
+            log.info("翻页开始了...")
+            if PRODUCT_PREV == 0:
+                PRODUCT_PREV = 2
+            else:
+                PRODUCT_PREV += 1
+            geek.products = []
+            geek._product()
+            paint_product()
+        else:
+            log.info("正常抓取完成。")
+    paint_product()
 
 
 if __name__ == "__main__":
@@ -544,7 +560,7 @@ if __name__ == "__main__":
 
     try:
         FINISH_ARTICLES = _load_finish_article()
-        run(cellphone, pwd, exclude=exclude, get_comments=get_comments)
+        run(cellphone, pwd, exclude=exclude, file_type=file_type, get_comments=get_comments)
     except Exception:
         import traceback
         log.error(f"请求过程中出错了，出错信息为：{traceback.format_exc()}")
